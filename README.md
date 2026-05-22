@@ -52,7 +52,7 @@ User asks a question → Find relevant chunks → Generate answer (Groq LLaMA 3.
 
 **1. Clone the repository**
 ```bash
-git clone https://github.com/your-username/your-repo-name.git
+git clone https://github.com/SANDEEP-KR-MAHTO/YouTube_ChatBot.git
 cd your-repo-name
 ```
 
@@ -94,6 +94,11 @@ The app will open at `http://localhost:8501`
 2. Click **Load Video** — wait for transcript to be fetched and indexed
 3. Ask any question about the video in the chat box
 4. Use **Clear Chat** to start a fresh conversation
+
+---
+
+## YouTube_ChatBot Link
+👉 [Click_Here](https://youtubechatbot-sm6xzpczwbj7kwjm5pno2e.streamlit.app/)
 
 ---
 
