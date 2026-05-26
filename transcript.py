@@ -7,13 +7,25 @@ def _build_api() -> YouTubeTranscriptApi:
     """
     Return a YouTubeTranscriptApi instance, optionally with proxy support.
 
-    Priority order:
-    1. Webshare rotating proxies  (WEBSHARE_PROXY_USERNAME + WEBSHARE_PROXY_PASSWORD)
-       → Best for Streamlit Cloud; sign up free at https://proxy.webshare.io
-    2. Generic HTTP/HTTPS proxy   (HTTP_PROXY or HTTPS_PROXY env var)
-       → Any other proxy provider
-    3. No proxy — works locally, blocked on most cloud provider IPs
+    Checks in priority order:
+    1. ScraperAPI    (SCRAPER_API_KEY)                              — 1,000 free req/month
+    2. Webshare      (WEBSHARE_PROXY_USERNAME + _PASSWORD)          — paid residential
+    3. Generic proxy (HTTP_PROXY or HTTPS_PROXY env var)            — any other provider
+    4. No proxy                                                     — local dev only
     """
+    # 1. ScraperAPI — residential IPs, free tier sufficient for personal projects
+    scraper_key = os.getenv("SCRAPER_API_KEY")
+    if scraper_key:
+        from youtube_transcript_api.proxies import GenericProxyConfig
+        proxy_url = f"http://scraperapi:{scraper_key}@proxy-server.scraperapi.com:8001"
+        return YouTubeTranscriptApi(
+            proxy_config=GenericProxyConfig(
+                http_url=proxy_url,
+                https_url=proxy_url,
+            )
+        )
+
+    # 2. Webshare residential proxies (paid plan required for residential IPs)
     webshare_user = os.getenv("WEBSHARE_PROXY_USERNAME")
     webshare_pass = os.getenv("WEBSHARE_PROXY_PASSWORD")
     if webshare_user and webshare_pass:
@@ -25,6 +37,7 @@ def _build_api() -> YouTubeTranscriptApi:
             )
         )
 
+    # 3. Generic HTTP/HTTPS proxy
     proxy_url = os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY")
     if proxy_url:
         from youtube_transcript_api.proxies import GenericProxyConfig
@@ -35,6 +48,7 @@ def _build_api() -> YouTubeTranscriptApi:
             )
         )
 
+    # 4. No proxy — works locally, blocked on cloud provider IPs
     return YouTubeTranscriptApi()
 
 
