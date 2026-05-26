@@ -8,21 +8,32 @@ from youtube_transcript_api import YouTubeTranscriptApi
 
 
 # ---------------------------------------------------------------------------
-# ScraperAPI-based fetcher  (Streamlit Cloud / any cloud deployment)
-#
-# Uses ScraperAPI's *API mode*:  GET https://api.scraperapi.com/?api_key=...&url=...
-# ScraperAPI fetches YouTube from a residential IP and returns the HTML/XML to us.
-# This is a plain HTTPS call to api.scraperapi.com — no proxy tunnelling,
-# no SSL interception, no certificate errors.
+# Helpers
 # ---------------------------------------------------------------------------
 
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
+
 def _scraper_get(url: str, api_key: str, timeout: int = 30) -> str:
-    """Fetch a URL through ScraperAPI's API endpoint and return the response text."""
+    """Fetch a URL through ScraperAPI's API endpoint (residential IP)."""
     resp = requests.get(
         "https://api.scraperapi.com/",
         params={"api_key": api_key, "url": url},
         timeout=timeout,
     )
+    resp.raise_for_status()
+    return resp.text
+
+
+def _direct_get(url: str, timeout: int = 30) -> str:
+    """Fetch a URL directly with a browser-like User-Agent."""
+    resp = requests.get(url, headers=_HEADERS, timeout=timeout)
     resp.raise_for_status()
     return resp.text
 
@@ -57,7 +68,6 @@ def _extract_caption_url(page_html: str) -> str:
             "Make sure the video has subtitles or auto-generated captions enabled."
         )
 
-    # Prefer English captions; fall back to first available language
     for track in tracks:
         if track.get("languageCode", "").startswith("en"):
             return track["baseUrl"]
@@ -67,6 +77,12 @@ def _extract_caption_url(page_html: str) -> str:
 
 def _parse_timed_text(xml_text: str) -> str:
     """Convert YouTube's timed-text XML into a plain-text string."""
+    xml_text = xml_text.strip()
+    if not xml_text:
+        raise RuntimeError(
+            "YouTube returned empty caption data. "
+            "The video may not have captions available."
+        )
     root = ET.fromstring(xml_text)
     parts = []
     for elem in root.iter("text"):
@@ -77,13 +93,36 @@ def _parse_timed_text(xml_text: str) -> str:
     return " ".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Transcript fetchers
+# ---------------------------------------------------------------------------
+
 def _fetch_via_scraperapi(video_id: str, api_key: str) -> str:
-    """Full transcript fetch using ScraperAPI API mode (no proxy, no SSL issues)."""
+    """
+    Hybrid approach:
+      Step 1 — Watch page  : fetched via ScraperAPI (residential IP, bypasses block)
+      Step 2 — Caption XML : fetched directly       (signed URL works from any IP)
+
+    The YouTube timedtext URL contains ip=0.0.0.0 in its signed params, meaning
+    it is not tied to a specific IP and can be fetched from any server.
+    Using ScraperAPI for this step returns empty content — hence the direct fetch.
+    """
+    # Step 1: get the watch page through a residential IP
     page_html = _scraper_get(
         f"https://www.youtube.com/watch?v={video_id}", api_key
     )
+
+    if len(page_html) < 1000:
+        raise RuntimeError(
+            "ScraperAPI returned an unexpectedly short page — "
+            "the video may be unavailable or your ScraperAPI quota may be exhausted."
+        )
+
+    # Step 2: extract the signed caption URL
     caption_url = _extract_caption_url(page_html)
-    caption_xml = _scraper_get(caption_url, api_key)
+
+    # Step 3: fetch the caption XML directly (no proxy needed)
+    caption_xml = _direct_get(caption_url)
     return _parse_timed_text(caption_xml)
 
 
@@ -111,7 +150,7 @@ def get_transcript(url: str) -> tuple[str, str]:
     """
     Returns (transcript_text, video_id).
 
-    - SCRAPER_API_KEY set  →  ScraperAPI API mode  (cloud-safe, no IP/SSL issues)
+    - SCRAPER_API_KEY set  →  hybrid ScraperAPI fetch  (Streamlit Cloud safe)
     - No key              →  direct youtube-transcript-api  (local dev only)
     """
     video_id = extract_video_id(url)
